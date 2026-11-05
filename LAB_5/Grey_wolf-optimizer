@@ -1,0 +1,165 @@
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+from sklearn.datasets import load_breast_cancer
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import accuracy_score
+
+np.random.seed(42)
+print(" USN : 1WN24CS167 ")
+print(" Name : NANDITHA ")
+
+# 1. Load dataset
+data = load_breast_cancer()
+X = data.data
+y = data.target
+feature_names = data.feature_names
+
+# 2. Split dataset
+X_train, X_temp, y_train, y_temp = train_test_split(
+    X, y, test_size=0.30, random_state=42, stratify=y
+)
+
+X_val, X_test, y_val, y_test = train_test_split(
+    X_temp, y_temp, test_size=0.50,
+    random_state=42, stratify=y_temp
+)
+
+# 3. GWO parameters
+N = 10
+MAX_ITER = 50
+DIM = X.shape[1]
+
+# Fitness weights
+ALPHA = 0.99
+BETA = 0.01
+
+# 4. KNN classifier
+model = make_pipeline(
+    StandardScaler(),
+    KNeighborsClassifier(n_neighbors=5)
+)
+
+# 5. Fitness function
+def fitness(position):
+
+    selected = position.astype(bool)
+
+    if np.sum(selected) == 0:
+        return 1.0
+
+    model.fit(X_train[:, selected], y_train)
+    pred = model.predict(X_val[:, selected])
+
+    error = 1 - accuracy_score(y_val, pred)
+    feature_ratio = np.sum(selected) / DIM
+
+    return ALPHA * error + BETA * feature_ratio
+
+# 6. Binary conversion using S-shaped transfer function
+def binary_conversion(position):
+
+    probability = 1 / (1 + np.exp(-10 * (position - 0.5)))
+
+    return (np.random.rand(DIM) < probability).astype(int)
+
+# 7. Initialize wolves
+wolves = np.random.uniform(0, 1, (N, DIM))
+binary_wolves = np.array([
+    binary_conversion(w) for w in wolves
+])
+
+# Evaluate initial population
+scores = np.array([fitness(w) for w in binary_wolves])
+
+# Select Alpha, Beta and Delta
+order = np.argsort(scores)
+
+alpha = wolves[order[0]].copy()
+beta = wolves[order[1]].copy()
+delta = wolves[order[2]].copy()
+
+best_solution = binary_wolves[order[0]].copy()
+best_fitness = scores[order[0]]
+
+history = []
+
+# 8. Grey Wolf Optimization
+for t in range(MAX_ITER):
+
+    a = 2 - 2 * t / MAX_ITER
+
+    for i in range(N):
+
+        r1, r2 = np.random.rand(DIM), np.random.rand(DIM)
+        A1 = 2 * a * r1 - a
+        C1 = 2 * r2
+        D_alpha = abs(C1 * alpha - wolves[i])
+        X1 = alpha - A1 * D_alpha
+
+        r1, r2 = np.random.rand(DIM), np.random.rand(DIM)
+        A2 = 2 * a * r1 - a
+        C2 = 2 * r2
+        D_beta = abs(C2 * beta - wolves[i])
+        X2 = beta - A2 * D_beta
+
+        r1, r2 = np.random.rand(DIM), np.random.rand(DIM)
+        A3 = 2 * a * r1 - a
+        C3 = 2 * r2
+        D_delta = abs(C3 * delta - wolves[i])
+        X3 = delta - A3 * D_delta
+
+        # Update continuous position
+        wolves[i] = np.clip((X1 + X2 + X3) / 3, 0, 1)
+
+        # Convert position into binary features
+        binary_wolves[i] = binary_conversion(wolves[i])
+
+        # Evaluate new solution
+        scores[i] = fitness(binary_wolves[i])
+
+    # Update Alpha, Beta and Delta
+    order = np.argsort(scores)
+
+    alpha = wolves[order[0]].copy()
+    beta = wolves[order[1]].copy()
+    delta = wolves[order[2]].copy()
+
+    if scores[order[0]] < best_fitness:
+        best_fitness = scores[order[0]]
+        best_solution = binary_wolves[order[0]].copy()
+
+    history.append(best_fitness)
+
+# 9. Final evaluation using unseen test data
+selected = best_solution.astype(bool)
+
+model.fit(X_train[:, selected], y_train)
+test_pred = model.predict(X_test[:, selected])
+
+accuracy = accuracy_score(y_test, test_pred)
+
+print("\nGREY WOLF OPTIMIZER - FEATURE SELECTION")
+print("---------------------------------------")
+print("Total features:", DIM)
+print("Selected features:", np.sum(selected))
+print("Selected feature names:")
+
+for name in feature_names[selected]:
+    print(name)
+
+print("\nBest Fitness:", round(best_fitness, 4))
+print("Test Classification Accuracy:",
+      round(accuracy * 100, 2), "%")
+
+# 10. Convergence graph
+plt.plot(range(1, MAX_ITER + 1), history, marker='o')
+plt.xlabel("Iteration")
+plt.ylabel("Best Fitness Value")
+plt.title("GWO Feature Selection Convergence")
+plt.grid(True)
+plt.show()
